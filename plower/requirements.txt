@@ -1,4 +1,4 @@
-# ~/data/plower/requirements.txt
+# ~/ai/plower/requirements.txt
 
 # FastAPI (APIサーバーフレームワーク)
 fastapi

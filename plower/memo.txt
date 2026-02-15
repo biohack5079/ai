@@ -8,3 +8,20 @@ ollama list
 llama pull gpt-oss:20b
 llama run gpt-oss:20b "こんにちは、自己紹介してください"
 ollama serve
+
+環境移行
+pyenv install 3.11.7
+pyenv local 3.11.7
+python3.11 -m venv venv
+source venv/bin/activate
+pip install -r requirements.txt
+
+
+python -m http.server 8000
+uvicorn app.main:app --reload --port 8001
+
+### push
+git add .
+git commit -m "change"
+git push -u origin main
+
