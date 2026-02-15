@@ -416,6 +416,7 @@ ${context}
     
     // --- モデルの振り分けロジック ---
     const isGeminiCloudModel = GEMINI_MODELS.includes(modelSelect);
+    const isSarasinaModel = modelSelect.toLowerCase().includes('sarasina');
     
     if (isGeminiCloudModel) {
         // --- Gemini Cloud Model (FastAPIプロキシ経由) ---
@@ -427,6 +428,15 @@ ${context}
         };
         isStreaming = false; 
 
+    } else if (isSarasinaModel) {
+        // --- SoftBank Sarasina Model (FastAPIプロキシ経由) ---
+        endpoint = 'http://localhost:8001/api/sarasina';
+        bodyData = {
+            model: modelSelect,
+            prompt: prompt,
+            temperature: 0.1
+        };
+        isStreaming = false;
     } else {
         // --- Ollama Local Model ---
         endpoint = 'http://localhost:11434/api/generate';
@@ -455,7 +465,10 @@ ${context}
 
         if (!response.ok) {
             const errorDetail = await response.text();
-            const errorSource = isGeminiCloudModel ? 'FastAPIプロキシ/Gemini API' : 'Ollamaサーバー';
+            let errorSource = 'Ollamaサーバー';
+            if (isGeminiCloudModel) errorSource = 'FastAPIプロキシ/Gemini API';
+            if (isSarasinaModel) errorSource = 'FastAPIプロキシ/Sarasina API';
+            
             throw new Error(`${errorSource} エラー: ${response.status} ${response.statusText}. モデル: ${modelSelect} のロードまたは通信に失敗しました。詳細: ${errorDetail.slice(0, 100)}...`);
         }
 
@@ -488,12 +501,12 @@ ${context}
                 });
             }
         } else {
-            // Gemini (非ストリーミング) 処理
+            // Gemini / Sarasina (非ストリーミング) 処理
             const json = await response.json();
             if (json.response) {
                 result = json.response;
             } else if (json.detail) {
-                throw new Error(`Geminiプロキシ処理エラー: ${json.detail}`);
+                throw new Error(`プロキシ処理エラー: ${json.detail}`);
             } else {
                 throw new Error("FastAPIプロキシからの予期しない応答形式です。");
             }

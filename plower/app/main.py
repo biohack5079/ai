@@ -4,6 +4,7 @@ import os
 from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
+import requests
 from google import genai
 from dotenv import load_dotenv
 
@@ -101,4 +102,33 @@ async def gemini_proxy(request_data: GeminiRequest):
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail="An error occurred during AI generation. Please check the server logs."
+        )
+
+# Sarasina (Ollama経由またはローカルサーバー) 用のプロキシエンドポイント
+@app.post("/api/sarasina")
+async def sarasina_proxy(request_data: GeminiRequest):
+    """
+    SoftBank sarasina (Ollamaに手動登録したモデル等) へのプロキシ
+    """
+    # OllamaのOpenAI互換エンドポイント (デフォルトポート: 11434)
+    target_url = "http://localhost:11434/v1/chat/completions"
+
+    try:
+        response = requests.post(
+            target_url,
+            json={
+                "model": request_data.model, # フロントエンドから送られたモデル名を使用
+                "messages": [{"role": "user", "content": request_data.prompt}],
+                "temperature": request_data.temperature
+            }
+        )
+        response.raise_for_status()
+        data = response.json()
+        return {"response": data["choices"][0]["message"]["content"]}
+
+    except Exception as e:
+        print(f"Sarasina API Error: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Sarasina model error. Check Ollama/Local server. Error: {str(e)}"
         )

@@ -9,3 +9,6 @@ google-genai
 
 # 環境変数管理
 python-dotenv
+
+# HTTP Client
+requests
