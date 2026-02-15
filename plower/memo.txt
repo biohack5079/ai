@@ -16,6 +16,9 @@ python3.11 -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 
+.env
+GEMINI_API_KEY=あなたのキー
+
 
 python -m http.server 8000
 uvicorn app.main:app --reload --port 8001
