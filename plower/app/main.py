@@ -33,6 +33,7 @@ origins = [
     "http://127.0.0.1",
     "http://localhost",
     "http://localhost:8000",  # HTML簡易サーバーのポート
+    "http://127.0.0.1:8000",  # HTML簡易サーバーのポート (IP指定時)
     "http://localhost:8001",  # FastAPIサーバーのポート
     "http://localhost:5500",  # Live ServerなどのHTML実行環境のポート
 ]
