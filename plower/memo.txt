@@ -1,13 +1,60 @@
-python -m http.server 8000
+実行
 uvicorn app.main:app --reload --port 8001
+python -m http.server 8000
 
 
 モデルが無い場合
-source .venv/bin/activate
+source venv/bin/activate
 ollama list
 llama pull gpt-oss:20b
 llama run gpt-oss:20b "こんにちは、自己紹介してください"
 ollama serve
+
+
+# 作業用の一時ディレクトリ作成
+mkdir -p temp_model
+cd temp_model
+
+# 1. GGUFモデルのダウンロード (約3.57GB)
+wget https://huggingface.co/mmnga/sarashina2.2-3b-instruct-v0.1-gguf/blob/main/sarashina2.2-3b-instruct-v0.1-Q8_0.gguf
+
+# 2. Modelfileの作成
+echo 'FROM ./sarashina2.2-3b-instruct-v0.1-Q8_0.gguf
+TEMPLATE """<|user|>
+{{ .Prompt }}
+<|assistant|>
+"""
+PARAMETER stop "<|user|>"
+PARAMETER stop "<|assistant|>"' > Modelfile
+
+
+# 3. Ollamaへ登録
+ollama create sarasina -f Modelfile
+
+# 4. 確認 (sarasinaが表示されればOK)
+ollama list
+
+# 元のディレクトリに戻る
+cd ../
+
+
+
+download_sarasina.py
+
+from huggingface_hub import hf_hub_download
+
+hf_hub_download(
+    repo_id="mmnga/sarashina2.2-3b-instruct-v0.1-gguf",
+    filename="sarashina2.2-3b-instruct-v0.1-Q8_0.gguf",  # ← Files タブの名前に合わせて
+    local_dir="./temp_model",
+    token="HuggingFace token"
+)
+
+
+
+
+
+
 
 環境移行
 pyenv install 3.11.7
@@ -19,9 +66,9 @@ pip install -r requirements.txt
 .env
 GEMINI_API_KEY=あなたのキー
 
-
-python -m http.server 8000
 uvicorn app.main:app --reload --port 8001
+python -m http.server 8000
+
 
 ### push
 git add .

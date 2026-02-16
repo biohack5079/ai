@@ -8,12 +8,6 @@ let worker;
 
 const PREVIEW_MAX_DOCS = 5; // コンテンツ表示エリアに表示する最大ファイル数
 
-// クラウド（Gemini API）モデルのリストを定義 (モデル判別に利用)
-const GEMINI_MODELS = [
-    "gemini-1.5-flash",
-    "gemini-1.5-pro",
-];
-
 // --- LocalStorageからの文書ロードとファイル一覧の表示 ---
 function loadDocuments() {
     try {
@@ -341,23 +335,38 @@ function saveOcrTextAsFile() {
 function findRelevantDocs(query, docs, topK = 3) {
     if (!docs || docs.length === 0) return [];
     
-    // 💡 RAG検索ロジックを改善: 助詞や句読点を除去した単語リストで検索
-    const contentCleanedQuery = query.toLowerCase()
-        .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()？。、はがをにでと]/g, " ") // 日本語の助詞・句読点も除去
-        .split(/\s+/)
-        .filter(t => t.length > 1); // 1文字以下の単語は無視
+    // 💡 RAG検索ロジックを改善: 記号を除去し、日本語の1文字単語（漢字など）を許容
+    const cleanQuery = query.toLowerCase()
+        .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()？。、！「」【】]/g, " "); 
 
-    const searchTerms = Array.from(new Set([query.toLowerCase(), ...contentCleanedQuery])); // 元のクエリと単語リストを統合
+    const searchTerms = cleanQuery.split(/\s+/)
+        .filter(t => t.trim().length > 0)
+        .filter(t => {
+            // 英数字のみの場合は2文字以上、それ以外（日本語など）は1文字以上を許容
+            return /^[a-z0-9]+$/.test(t) ? t.length > 1 : true;
+        });
+
+    // 元のクエリそのものも検索語に追加
+    if (query.trim()) {
+        searchTerms.push(query.toLowerCase());
+    }
+    
+    // 重複除去
+    const uniqueTerms = [...new Set(searchTerms)];
 
     const scores = docs.map(doc => {
         const content = (doc.content || '').toLowerCase();
         let score = 0;
         
-        searchTerms.forEach(term => {
-            // 全体一致と部分一致の両方でスコアを計算
-            const count = (content.match(new RegExp(term, 'g')) || []).length; 
-            // キーワードの文字数で重み付け (長いキーワードほど重要)
-            score += count * term.length; 
+        uniqueTerms.forEach(term => {
+            try {
+                // 正規表現の特殊文字をエスケープ
+                const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+                const count = (content.match(new RegExp(escapedTerm, 'g')) || []).length; 
+                score += count * term.length; 
+            } catch (e) {
+                console.warn("Regex error:", e);
+            }
         });
         return { ...doc, score };
     });
@@ -395,19 +404,28 @@ async function sendToModel() {
     }
 
     // RAGコンテキストの生成
-    const relevantDocs = findRelevantDocs(userInput, allDocuments);
+    let relevantDocs = findRelevantDocs(userInput, allDocuments);
+
+    // 検索でヒットしない場合、フォールバックとして最新の文書を使用する
+    if (relevantDocs.length === 0 && allDocuments.length > 0) {
+        console.log("キーワード検索でヒットしませんでした。最新の文書をフォールバックとして使用します。");
+        // 最新のものを優先（配列の最後が最新）
+        relevantDocs = allDocuments.slice().reverse().slice(0, 5);
+    }
+
+    console.log(`RAG検索結果: ${relevantDocs.length}件の関連文書が見つかりました。`, relevantDocs); // デバッグ用
     const context = relevantDocs.map(doc => `【${doc.name}】\n${doc.content}`).join('\n\n').slice(0, 5000); // 5000文字に制限
     
-    // プロンプトの生成
-    const prompt = `あなたはRAGシステムとして機能します。提供された以下の文書に基づいて、ユーザーの質問に日本語で簡潔に答えてください。
-    文書に関連情報がない場合は、「提供された文書に関連情報がないため回答できません。」と伝えてください。
-    参照した文書名（【文書名】）を引用として回答の末尾に記載しても構いません。
+    // プロンプトの生成 (Sarasinaなど小規模モデルでも認識しやすい形式に調整)
+    const prompt = `あなたは提供された文書に基づいて回答するアシスタントです。
+以下の【参照文書】の内容のみを使用して、質問に日本語で答えてください。
+文書に答えが含まれていない場合は、「提供された文書に関連情報がないため回答できません。」と答えてください。
 
---- 文書 ---
+【参照文書】
 ${context}
----
 
-質問: ${userInput}`;
+【質問】
+${userInput}`;
 
     let result = '';
     let endpoint = '';
@@ -415,7 +433,7 @@ ${context}
     let isStreaming = false;
     
     // --- モデルの振り分けロジック ---
-    const isGeminiCloudModel = GEMINI_MODELS.includes(modelSelect);
+    const isGeminiCloudModel = modelSelect.toLowerCase().startsWith('gemini');
     const isSarasinaModel = modelSelect.toLowerCase().includes('sarasina');
     
     if (isGeminiCloudModel) {

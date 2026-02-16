@@ -111,21 +111,25 @@ async def sarasina_proxy(request_data: GeminiRequest):
     """
     SoftBank sarasina (Ollamaに手動登録したモデル等) へのプロキシ
     """
-    # OllamaのOpenAI互換エンドポイント (デフォルトポート: 11434)
-    target_url = "http://localhost:11434/v1/chat/completions"
+    # Ollama Native API (コンテキストサイズ制御のためこちらを使用)
+    target_url = "http://localhost:11434/api/chat"
 
     try:
         response = requests.post(
             target_url,
             json={
-                "model": request_data.model, # フロントエンドから送られたモデル名を使用
+                "model": request_data.model,
                 "messages": [{"role": "user", "content": request_data.prompt}],
-                "temperature": request_data.temperature
+                "stream": False,
+                "options": {
+                    "temperature": request_data.temperature,
+                    "num_ctx": 8192  # RAG用にコンテキストサイズを拡張 (デフォルト2048 -> 8192)
+                }
             }
         )
         response.raise_for_status()
         data = response.json()
-        return {"response": data["choices"][0]["message"]["content"]}
+        return {"response": data["message"]["content"]}
 
     except Exception as e:
         print(f"Sarasina API Error: {e}")

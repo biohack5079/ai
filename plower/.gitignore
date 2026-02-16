@@ -11,3 +11,7 @@ __pycache__/
 # Python環境
 venv/
 .venv/
+
+
+download_sarasina.py
+temp_model

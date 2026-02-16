@@ -1,0 +1,10 @@
+FROM ./temp_model/sarashina2.2-3b-instruct-v0.1-Q8_0.gguf
+
+TEMPLATE """<|user|>
+{{ .Prompt }}
+<|assistant|>
+"""
+
+PARAMETER stop "<|user|>"
+PARAMETER stop "<|assistant|>"
+
