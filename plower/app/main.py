@@ -86,33 +86,66 @@ async def gemini_proxy(request_data: GeminiRequest):
         raise HTTPException(status_code=503, detail="Gemini Client not initialized.")
 
     # ✨ ここで動的マッピングを適用
-    actual_model = map_model_name(request_data.model)
-    print(f"🔀 Mapping: {request_data.model} -> {actual_model}")
+    initial_model = map_model_name(request_data.model)
+    print(f"🔀 Mapping: {request_data.model} -> {initial_model}")
 
-    max_retries = 3
-    for attempt in range(max_retries + 1):
-        try:
-            response = client.models.generate_content(
-                model=actual_model,
-                contents=request_data.prompt,
-                config=genai.types.GenerateContentConfig(
-                    temperature=request_data.temperature
+    # 1. モデル候補リストを作成
+    candidates = []
+    if "pro" in initial_model.lower():
+        # Proモデルの場合: バージョンが新しい順にソートし、指定モデル以降（古いもの）を候補にする
+        pro_models = sorted(
+            [m for m in AVAILABLE_GEMINI_MODELS if "pro" in m.lower() and "vision" not in m.lower()],
+            reverse=True
+        )
+        if initial_model in pro_models:
+            start_index = pro_models.index(initial_model)
+            candidates = pro_models[start_index:]
+        else:
+            candidates = [initial_model]
+    else:
+        # Pro以外（Flash等）はそのまま
+        candidates = [initial_model]
+
+    print(f"🔀 Model candidates: {candidates}")
+    last_exception = None
+
+    for i, model_to_try in enumerate(candidates):
+        # 最後の候補（下位モデル）のみリトライを行う設定
+        is_last = (i == len(candidates) - 1)
+        max_retries = 3 if is_last else 0
+
+        for attempt in range(max_retries + 1):
+            try:
+                response = client.models.generate_content(
+                    model=model_to_try,
+                    contents=request_data.prompt,
+                    config=genai.types.GenerateContentConfig(
+                        temperature=request_data.temperature
+                    )
                 )
-            )
-            return {"response": response.text, "model_used": actual_model}
+                # レスポンスの末尾に使用したモデル名を追記
+                final_text = f"{response.text}\n\n(Model: {model_to_try})"
+                return {"response": final_text, "model_used": model_to_try}
             
-        except Exception as e:
-            error_str = str(e)
-            # 429 Resource Exhausted エラーのハンドリング
-            if ("429" in error_str or "RESOURCE_EXHAUSTED" in error_str) and attempt < max_retries:
-                wait_time = 2 * (2 ** attempt) # 指数バックオフ: 2s, 4s, 8s
-                print(f"⚠️ Quota exceeded for {actual_model}. Retrying in {wait_time}s... (Attempt {attempt + 1}/{max_retries})")
-                await asyncio.sleep(wait_time)
-                continue
-            
-            print(f"Gemini API Error: {e}")
-            status_code = 429 if "429" in error_str else 500
-            raise HTTPException(status_code=status_code, detail=str(e))
+            except Exception as e:
+                last_exception = e
+                error_str = str(e)
+                is_quota = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
+
+                if not is_quota:
+                    raise HTTPException(status_code=500, detail=f"Gemini API Error: {error_str}")
+
+                if attempt < max_retries:
+                    wait_time = 2 * (2 ** attempt)
+                    print(f"⚠️ Quota exceeded for {model_to_try}. Retrying in {wait_time}s...")
+                    await asyncio.sleep(wait_time)
+                else:
+                    print(f"⚠️ Quota exceeded for {model_to_try}. Moving to next candidate.")
+                    break 
+
+    # 全て失敗した場合
+    detail_msg = f"All models failed. Candidates tried: {candidates}. Last error: {str(last_exception)}"
+    raise HTTPException(status_code=429, detail=detail_msg)
 
 # Sarasina (Ollama経由またはローカルサーバー) 用のプロキシエンドポイント
 @app.post("/api/sarasina")
