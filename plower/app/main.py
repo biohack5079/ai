@@ -1,6 +1,5 @@
-# ~/data/plower/app/main.py
-
 import os
+import asyncio
 from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -8,112 +7,118 @@ import requests
 from google import genai
 from dotenv import load_dotenv
 
-# .envファイルから環境変数をロード
+# .envロード
 load_dotenv()
 
-# 環境変数からAPIキーを取得
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-if not GEMINI_API_KEY:
-    # 実際にはサーバー起動時にチェックする
-    print("FATAL: GEMINI_API_KEY is not set in the .env file.") 
+client = None
+AVAILABLE_GEMINI_MODELS = [] # 利用可能なモデルリストを保持
 
-# Geminiクライアントの初期化
-# キーがない場合、この初期化処理でエラーになる可能性があるため、キーチェックを強化
-if GEMINI_API_KEY:
-    client = genai.Client(api_key=GEMINI_API_KEY)
-else:
-    # APIキーがない場合はダミーを設定 (後続のチェックでエラーを発生させる)
-    client = None
-    
 app = FastAPI()
 
-# ⚠️ CORS設定: フロントエンドのポートと合わせてください
-# ローカルで開発する場合、許可するオリジンを設定します。
-origins = [
-    "http://127.0.0.1",
-    "http://localhost",
-    "http://localhost:8000",  # HTML簡易サーバーのポート
-    "http://127.0.0.1:8000",  # HTML簡易サーバーのポート (IP指定時)
-    "http://localhost:8001",  # FastAPIサーバーのポート
-    "http://localhost:5500",  # Live ServerなどのHTML実行環境のポート
-]
+# --- 🚀 起動時に利用可能なモデルを動的に取得 ---
+@app.on_event("startup")
+async def startup_event():
+    global client, AVAILABLE_GEMINI_MODELS
+    if GEMINI_API_KEY:
+        try:
+            client = genai.Client(api_key=GEMINI_API_KEY)
+            # models.list() で利用可能な全モデルを取得
+            # names は "models/gemini-2.5-flash" の形式なので "models/" を除去
+            models = client.models.list()
+            AVAILABLE_GEMINI_MODELS = [m.name.replace("models/", "") for m in models]
+            print(f"✅ Loaded Gemini models: {AVAILABLE_GEMINI_MODELS}")
+        except Exception as e:
+            print(f"❌ Failed to load Gemini models: {e}")
 
+# --- 🧠 モデル名のインテリジェント・マッピング関数 ---
+def map_model_name(user_model: str) -> str:
+    """
+    ユーザーが指定したモデル名（例: 'flash', 'gemini-1.5-pro'）を
+    現在利用可能な最新の正式モデル名に変換する
+    """
+    if not AVAILABLE_GEMINI_MODELS:
+        return user_model # リストが空ならそのまま返す
+
+    # 1. 完全一致があればそれを使用
+    if user_model in AVAILABLE_GEMINI_MODELS:
+        return user_model
+
+    # 2. キーワード（flash, pro）が含まれるモデルをフィルタリング
+    # 例: "gemini-flash" -> "flash" で検索
+    # Gemini 3系やLiteにも対応 (大文字小文字無視)
+    search_keyword = user_model.lower().replace("gemini-", "").replace("1.5-", "").replace("2.5-", "").replace("3.0-", "").replace("3-", "")
+    
+    candidates = [
+        m for m in AVAILABLE_GEMINI_MODELS 
+        if search_keyword in m.lower() and "vision" not in m.lower() # vision専用モデル等は除外
+    ]
+
+    if candidates:
+        # 文字列順でソートして最新（例: 2.5 > 1.5）を選択
+        return sorted(candidates)[-1]
+
+    # 3. 見つからなければ（Ollama用など）入力をそのまま返す
+    return user_model
+
+# --- CORS設定 ---
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # 開発中は * でも良いが、本番では上記リストに絞るべき
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# リクエストボディの型定義
 class GeminiRequest(BaseModel):
-    model: str = "gemini-1.5-flash" # デフォルトモデル
+    model: str = "gemini-flash" # フロントからの抽象的な指定
     prompt: str
     temperature: float = 0.1
     
-# ヘルスチェックエンドポイント
 @app.get("/")
 def read_root():
-    return {"message": "Plower Gemini Proxy is running"}
+    return {"status": "online", "available_models_count": len(AVAILABLE_GEMINI_MODELS)}
 
 # Gemini APIを中継するプロキシエンドポイント
 @app.post("/api/gemini_proxy")
 async def gemini_proxy(request_data: GeminiRequest):
-    """
-    フロントエンドからのプロンプトを受け取り、Gemini APIに安全にリクエストを送信する。
-    """
     if not client:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Server API Client is not configured. (Missing GEMINI_API_KEY)"
-        )
+        raise HTTPException(status_code=503, detail="Gemini Client not initialized.")
 
-    # 🚀 モデル名マッピング処理 (404 NOT FOUNDエラー対策)
-    # フロントエンドで選択されたモデル名を使用可能な最新/互換モデル名に置き換える
-    model_name = request_data.model
-    if "1.5-flash" in model_name or model_name == "gemini-flash":
-        # 1.5-flash / gemini-flash が指定された場合、現行の 2.5-flash にマッピング
-        actual_model = "gemini-2.5-flash"
-    elif "1.5-pro" in model_name or model_name == "gemini-pro":
-        # 1.5-pro / gemini-pro が指定された場合、現行の 2.5-pro にマッピング
-        actual_model = "gemini-2.5-pro"
-    else:
-        # その他のモデル名 (ollamaなど) が指定された場合はそのまま使用（エラーになる可能性あり）
-        actual_model = model_name
+    # ✨ ここで動的マッピングを適用
+    actual_model = map_model_name(request_data.model)
+    print(f"🔀 Mapping: {request_data.model} -> {actual_model}")
 
-    try:
-        # Gemini APIの呼び出し (修正したモデル名を使用)
-        response = client.models.generate_content(
-            model=actual_model,
-            contents=request_data.prompt,
-            config=genai.types.GenerateContentConfig(
-                temperature=request_data.temperature
+    max_retries = 3
+    for attempt in range(max_retries + 1):
+        try:
+            response = client.models.generate_content(
+                model=actual_model,
+                contents=request_data.prompt,
+                config=genai.types.GenerateContentConfig(
+                    temperature=request_data.temperature
+                )
             )
-        )
-        # 返却するレスポンスを整形
-        return {"response": response.text}
-        
-    except Exception as e:
-        error_detail = str(e)
-        # 404 NOT_FOUNDなど具体的なエラーをサーバーログに出力
-        print(f"Gemini API Call Error: {error_detail}") 
-        
-        # クライアントには汎用的なエラーを返す
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="An error occurred during AI generation. Please check the server logs."
-        )
+            return {"response": response.text, "model_used": actual_model}
+            
+        except Exception as e:
+            error_str = str(e)
+            # 429 Resource Exhausted エラーのハンドリング
+            if ("429" in error_str or "RESOURCE_EXHAUSTED" in error_str) and attempt < max_retries:
+                wait_time = 2 * (2 ** attempt) # 指数バックオフ: 2s, 4s, 8s
+                print(f"⚠️ Quota exceeded for {actual_model}. Retrying in {wait_time}s... (Attempt {attempt + 1}/{max_retries})")
+                await asyncio.sleep(wait_time)
+                continue
+            
+            print(f"Gemini API Error: {e}")
+            status_code = 429 if "429" in error_str else 500
+            raise HTTPException(status_code=status_code, detail=str(e))
 
 # Sarasina (Ollama経由またはローカルサーバー) 用のプロキシエンドポイント
 @app.post("/api/sarasina")
 async def sarasina_proxy(request_data: GeminiRequest):
-    """
-    SoftBank sarasina (Ollamaに手動登録したモデル等) へのプロキシ
-    """
-    # Ollama Native API (コンテキストサイズ制御のためこちらを使用)
+    # (Sarasinaのロジックは変更なしでOK)
     target_url = "http://localhost:11434/api/chat"
-
     try:
         response = requests.post(
             target_url,
@@ -121,19 +126,10 @@ async def sarasina_proxy(request_data: GeminiRequest):
                 "model": request_data.model,
                 "messages": [{"role": "user", "content": request_data.prompt}],
                 "stream": False,
-                "options": {
-                    "temperature": request_data.temperature,
-                    "num_ctx": 8192  # RAG用にコンテキストサイズを拡張 (デフォルト2048 -> 8192)
-                }
+                "options": {"temperature": request_data.temperature, "num_ctx": 8192}
             }
         )
         response.raise_for_status()
-        data = response.json()
-        return {"response": data["message"]["content"]}
-
+        return {"response": response.json()["message"]["content"]}
     except Exception as e:
-        print(f"Sarasina API Error: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Sarasina model error. Check Ollama/Local server. Error: {str(e)}"
-        )
+        raise HTTPException(status_code=500, detail=f"Ollama Error: {str(e)}")
