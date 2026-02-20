@@ -222,10 +222,10 @@ async function syncLocalFolder() {
 
     try {
         // ユーザーにフォルダを選択させる
-        const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        const handle = await window.showDirectoryPicker({ mode: 'read' });
         directoryHandle = handle; // ハンドルを保持
 
-        if (confirm(`選択したフォルダ「${handle.name}」の内容で現在のRAGソースを上書きしますか？\n（現在LocalStorageに保存されている文書はクリアされます）`)) {
+        if (confirm(`フォルダ「${handle.name}」の内容を現在のRAGソースに追加しますか？`)) {
             await loadFilesFromDirectory();
         }
 
@@ -245,26 +245,49 @@ async function loadFilesFromDirectory() {
     const fileContentDiv = document.getElementById('fileContent');
     fileContentDiv.innerHTML = '<h3>同期フォルダからファイルを読み込み中...</h3><div class="spinner"></div>';
 
-    const newDocs = [];
     try {
-        for await (const entry of directoryHandle.values()) {
-            if (entry.kind === 'file' && entry.name.endsWith('.txt')) {
-                const file = await entry.getFile();
-                const content = await file.text();
-                newDocs.push({ name: entry.name, content: content });
+        const newDocs = [];
+
+        // 再帰的にファイルを読み込むヘルパー関数
+        async function readDirectoryRecursive(dirHandle, pathPrefix = '') {
+            for await (const entry of dirHandle.values()) {
+                if (entry.kind === 'file') {
+                    // 拡張子チェックの緩和 (.txt, .md, .log, .py, .js, .json, .c, .cpp, .h, .java, .html, .css, .csv)
+                    if (/\.(txt|md|log|py|js|json|c|cpp|h|java|html|css|csv|rb|go|rs|php)$/i.test(entry.name)) {
+                        try {
+                            const file = await entry.getFile();
+                            const content = await file.text();
+                            // パスを含めた名前で保存 (例: subfolder/file.txt)
+                            newDocs.push({ name: pathPrefix + entry.name, content: content });
+                        } catch (e) {
+                            console.warn(`Skipped file: ${entry.name}`, e);
+                        }
+                    }
+                } else if (entry.kind === 'directory') {
+                    // サブディレクトリを再帰的に探索
+                    await readDirectoryRecursive(entry, pathPrefix + entry.name + '/');
+                }
             }
         }
 
-        // 読み込んだ内容で永続化文書を上書き
-        persistentDocuments = newDocs;
+        await readDirectoryRecursive(directoryHandle);
+
+        if (newDocs.length === 0) {
+            alert("読み込み可能なテキストファイルが見つかりませんでした。");
+            updateFileListDisplay();
+            return;
+        }
+
+        // 既存の文書に追加 (マージ)
+        persistentDocuments = persistentDocuments.concat(newDocs);
         saveDocuments(); // LocalStorageに保存
         updateFileListDisplay(); // ファイル一覧を更新
 
-        alert(`フォルダ「${directoryHandle.name}」から ${newDocs.length} 件のテキストファイルを読み込み、RAGソースを同期しました。`);
+        alert(`フォルダ「${directoryHandle.name}」から ${newDocs.length} 件のファイルを読み込み、RAGソースに追加しました。`);
     } catch (err) {
         console.error('フォルダからのファイル読み込み中にエラーが発生しました:', err);
         alert('フォルダからのファイル読み込み中にエラーが発生しました。');
-        loadDocuments(); // エラーが発生した場合は、LocalStorageから元の状態を復元
+        updateFileListDisplay(); // 表示を復元
     }
 }
 
@@ -340,7 +363,9 @@ document.getElementById('fileInput').addEventListener('change', function () {
             }
             const reader = new FileReader();
             reader.onload = function (e) {
-                const newDoc = { name: file.name, content: e.target.result };
+                // フォルダアップロード時は相対パスを使用、通常はファイル名
+                const docName = file.webkitRelativePath ? file.webkitRelativePath : file.name;
+                const newDoc = { name: docName, content: e.target.result };
                 persistentDocuments.push(newDoc);
                 resolve();
             };

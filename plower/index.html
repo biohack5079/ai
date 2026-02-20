@@ -14,8 +14,8 @@
 <body>
     <h1>ローカル情報を掘り起こすAIショベル「プラウアー」。</h1>
     <div class="rag-controls-header">
-        <label for="fileInput">RAGソース文書 (Textファイル):</label>
-        <input type="file" id="fileInput" accept=".txt" multiple>
+        <label for="fileInput">RAGソース (フォルダ/ファイル):</label>
+        <input type="file" id="fileInput" multiple webkitdirectory>
         <button id="syncFolderButton">ローカルフォルダ同期 (File System API)</button>
         <button id="resetDocsButton">RAGソースをリセット (LocalStore全削除)</button>
     </div>
