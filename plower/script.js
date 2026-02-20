@@ -279,7 +279,6 @@ document.getElementById('pasteArea').addEventListener('paste', async function (e
 });
 
 // --- OCR/貼付テキストのファイル保存と永続化 ---
-document.getElementById('saveOcrButton').addEventListener('click', saveOcrTextAsFile);
 
 function saveOcrTextAsFile() {
     const allTextDocuments = [...ocrDocuments];
@@ -383,6 +382,7 @@ async function sendToModel() {
     const chatLog = document.getElementById('chatLog');
     const sendButton = document.getElementById('sendButton');
     const modelSelect = document.getElementById('modelSelect').value; 
+    const apiKey = document.getElementById('geminiApiKey').value.trim();
 
     if (!userInput) {
         alert("質問を入力してください。");
@@ -437,15 +437,95 @@ ${userInput}`;
     const isSarasinaModel = modelSelect.toLowerCase().includes('sarasina');
     
     if (isGeminiCloudModel) {
-        // --- Gemini Cloud Model (FastAPIプロキシ経由) ---
-        endpoint = 'http://localhost:8001/api/gemini_proxy'; 
-        bodyData = {
-            model: modelSelect, 
-            prompt: prompt,
-            temperature: 0.1
-        };
-        isStreaming = false; 
+        // --- Gemini Cloud Model (直接Google APIへ送信) ---
+        
+        // APIキーのチェック (入力欄の値を使用)
+        if (!apiKey) {
+            alert("Geminiモデルを使用するにはAPIキーが必要です。入力欄に設定してください。");
+            sendButton.disabled = false;
+            sendButton.textContent = '送信';
+            return;
+        }
 
+        // モデル候補の定義: 最新(2.0/3系相当) -> 安定版(1.5) の順にフォールバック
+        let candidates = [];
+        if (modelSelect.includes('flash')) {
+            // ユーザー指定の2.5系/Liteに加え、2.0 Experimental、安定版1.5系(001/002)を網羅的に試行
+            candidates = ['gemini-2.5-flash', 'gemini-flash-lite', 'gemini-2.0-flash-exp', 'gemini-1.5-flash', 'gemini-1.5-flash-002', 'gemini-1.5-flash-001'];
+        } else {
+            // Proの場合: 最新のExperimental -> 1.5 Pro
+            candidates = ['gemini-2.5-pro', 'gemini-2.0-pro-exp-02-05', 'gemini-1.5-pro', 'gemini-1.5-pro-002', 'gemini-1.5-pro-001'];
+        }
+
+        let success = false;
+        let lastError = null;
+
+        // 候補順にAPIを試行
+        for (const modelVersion of candidates) {
+            try {
+                console.log(`Trying Gemini model: ${modelVersion}`);
+                const currentEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${modelVersion}:generateContent?key=${apiKey}`;
+                const currentBody = {
+                    contents: [{ parts: [{ text: prompt }] }],
+                    generationConfig: { temperature: 0.1 }
+                };
+
+                const response = await fetch(currentEndpoint, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(currentBody)
+                });
+
+                if (!response.ok) {
+                    const errorText = await response.text();
+                    // 404(Not Found)や503(Service Unavailable)なら次を試す
+                    if (response.status === 404 || response.status === 503) {
+                        console.warn(`Model ${modelVersion} failed (${response.status}). Trying fallback...`);
+                        lastError = new Error(`Gemini API Error (${response.status}): ${errorText}`);
+                        continue;
+                    }
+                    
+                    // 認証エラーなどの場合、キーを削除して再入力を促す
+                    if (response.status === 400 || response.status === 403) {
+                        localStorage.removeItem('plowerGeminiApiKey');
+                        alert(`APIキーが無効か、権限がありません (Status: ${response.status})。\n保存されたキーを削除しました。再度送信して新しいキーを入力してください。`);
+                        throw new Error(`Gemini API Auth Error (${response.status}): ${errorText}`);
+                    }
+
+                    throw new Error(`Gemini API Error (${response.status}): ${errorText}`);
+                }
+
+                // 成功したらループを抜けて後続処理へ
+                const json = await response.json();
+                // レスポンス形式の正規化（後続の処理に合わせる）
+                if (json.candidates && json.candidates[0].content) {
+                    result = json.candidates[0].content.parts.map(p => p.text).join('');
+                    success = true;
+                    break; 
+                } else {
+                    throw new Error(`Unexpected response format from ${modelVersion}: ${JSON.stringify(json)}`);
+                }
+            } catch (e) {
+                lastError = e;
+                console.error(`Error with model ${modelVersion}:`, e);
+            }
+        }
+
+        if (!success) {
+            responseParagraph.innerHTML = `<strong>回答:</strong> ❌ エラーが発生しました: ${lastError ? lastError.message : 'All candidates failed.'}`;
+            sendButton.disabled = false;
+            sendButton.textContent = '送信';
+            return;
+        }
+
+        // 結果表示して終了（Ollama用の共通処理はスキップ）
+        responseParagraph.innerHTML = `<strong>回答:</strong> ${result.replace(/\n/g, '<br>')}`;
+        userInputElement.value = '';
+        sendButton.disabled = false;
+        sendButton.textContent = '送信';
+        chatLog.scrollTop = chatLog.scrollHeight;
+        return;
+        
     } else if (isSarasinaModel) {
         // --- SoftBank Sarasina Model (FastAPIプロキシ経由) ---
         endpoint = 'http://localhost:8001/api/sarasina';
@@ -521,12 +601,23 @@ ${userInput}`;
         } else {
             // Gemini / Sarasina (非ストリーミング) 処理
             const json = await response.json();
-            if (json.response) {
-                result = json.response;
-            } else if (json.detail) {
-                throw new Error(`プロキシ処理エラー: ${json.detail}`);
+            
+            if (isGeminiCloudModel) {
+                // Gemini APIのレスポンス形式
+                if (json.candidates && json.candidates[0].content.parts[0].text) {
+                    result = json.candidates[0].content.parts[0].text;
+                } else {
+                    throw new Error(`Gemini API Error: ${JSON.stringify(json)}`);
+                }
             } else {
-                throw new Error("FastAPIプロキシからの予期しない応答形式です。");
+                // Sarasina (プロキシ経由) のレスポンス形式
+                if (json.response) {
+                    result = json.response;
+                } else if (json.detail) {
+                    throw new Error(`プロキシ処理エラー: ${json.detail}`);
+                } else {
+                    throw new Error("予期しない応答形式です。");
+                }
             }
         }
         
@@ -550,6 +641,35 @@ document.addEventListener('DOMContentLoaded', () => {
     loadDocuments(); 
     document.getElementById('sendButton').addEventListener('click', sendToModel);
     document.getElementById('resetDocsButton').addEventListener('click', resetDocuments);
+    document.getElementById('saveOcrButton').addEventListener('click', saveOcrTextAsFile);
+
+    // APIキーのロードと保存処理
+    const savedKey = localStorage.getItem('plowerGeminiApiKey');
+    if (savedKey) {
+        document.getElementById('geminiApiKey').value = savedKey;
+    }
+    
+    const saveKeyBtn = document.getElementById('saveKeyButton');
+    saveKeyBtn.addEventListener('click', () => {
+        const key = document.getElementById('geminiApiKey').value.trim();
+        if (key) {
+            localStorage.setItem('plowerGeminiApiKey', key);
+            alert('APIキーをブラウザに保存しました。次回から自動入力されます。');
+        } else {
+            alert('APIキーが空です。削除する場合は「削除」ボタンを使用してください。');
+        }
+    });
+
+    // 削除ボタンを動的に追加
+    const deleteKeyBtn = document.createElement('button');
+    deleteKeyBtn.textContent = 'キー削除';
+    deleteKeyBtn.style.marginLeft = '5px';
+    deleteKeyBtn.addEventListener('click', () => {
+        localStorage.removeItem('plowerGeminiApiKey');
+        document.getElementById('geminiApiKey').value = '';
+        alert('保存されたAPIキーを削除しました。');
+    });
+    saveKeyBtn.parentNode.insertBefore(deleteKeyBtn, saveKeyBtn.nextSibling);
     
     // Enterキーでの送信機能
     document.getElementById('userInput').addEventListener('keypress', function(e) {

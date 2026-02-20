@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <title>ローカル情報を掘り起こすAIショベル「プラウアー」。</title>
+    <title>RAGベース NotebookLM風ローカルアプリ「plower」</title>
     <link rel="stylesheet" href="style.css"> 
     <script src='https://unpkg.com/tesseract.js@5.1.0/dist/tesseract.min.js'></script>
     <style>
@@ -13,6 +14,7 @@
 </head>
 <body>
     <h1>ローカル情報を掘り起こすAIショベル「プラウアー」。</h1>
+    <h1>RAGベース NotebookLM風アプリ「plower」</h1>
 
     <div class="rag-controls-header">
         <label for="fileInput">RAGソース文書 (Textファイル):</label>
@@ -40,6 +42,12 @@
     <label for="userInput">質問を入力:</label>
     <textarea id="userInput" placeholder="質問を入力してください..."></textarea>
     
+    <div style="margin-bottom: 10px; padding: 10px; background-color: #f0f0f0; border-radius: 5px;">
+        <label for="geminiApiKey">Gemini API Key (クラウド利用時のみ):</label>
+        <input type="password" id="geminiApiKey" placeholder="AIzaSy..." style="width: 300px;">
+        <button id="saveKeyButton">キーをブラウザに保存</button>
+    </div>
+
     <label for="modelSelect">モデル選択:</label>
     <select id="modelSelect">
         <option value="gemma:7b">Gemma 7B (Ollama)</option>
@@ -50,6 +58,8 @@
         <option value="sarasina">Sarasina (SoftBank/Ollama)</option>
         <option value="gemini-flash">Gemini API Flash (クラウド)</option>
         <option value="gemini-pro">Gemini API Pro (クラウド)</option>
+        <option value="gemini-1.5-flash">Gemini 1.5 Flash (クラウド)</option>
+        <option value="gemini-1.5-pro">Gemini 1.5 Pro (クラウド)</option>
     </select>
     
     <button id="sendButton">送信</button>

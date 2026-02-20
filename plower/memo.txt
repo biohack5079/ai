@@ -1,4 +1,6 @@
 実行
+cd plower
+source venv/bin/activate
 uvicorn app.main:app --reload --port 8001
 python -m http.server 8000
 

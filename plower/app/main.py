@@ -1,5 +1,4 @@
 import os
-import asyncio
 from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -46,12 +45,11 @@ def map_model_name(user_model: str) -> str:
 
     # 2. キーワード（flash, pro）が含まれるモデルをフィルタリング
     # 例: "gemini-flash" -> "flash" で検索
-    # Gemini 3系やLiteにも対応 (大文字小文字無視)
-    search_keyword = user_model.lower().replace("gemini-", "").replace("1.5-", "").replace("2.5-", "").replace("3.0-", "").replace("3-", "")
+    search_keyword = user_model.replace("gemini-", "").replace("1.5-", "").replace("2.5-", "")
     
     candidates = [
         m for m in AVAILABLE_GEMINI_MODELS 
-        if search_keyword in m.lower() and "vision" not in m.lower() # vision専用モデル等は除外
+        if search_keyword in m and "vision" not in m # vision専用モデル等は除外
     ]
 
     if candidates:
@@ -86,66 +84,22 @@ async def gemini_proxy(request_data: GeminiRequest):
         raise HTTPException(status_code=503, detail="Gemini Client not initialized.")
 
     # ✨ ここで動的マッピングを適用
-    initial_model = map_model_name(request_data.model)
-    print(f"🔀 Mapping: {request_data.model} -> {initial_model}")
+    actual_model = map_model_name(request_data.model)
+    print(f"🔀 Mapping: {request_data.model} -> {actual_model}")
 
-    # 1. モデル候補リストを作成
-    candidates = []
-    if "pro" in initial_model.lower():
-        # Proモデルの場合: バージョンが新しい順にソートし、指定モデル以降（古いもの）を候補にする
-        pro_models = sorted(
-            [m for m in AVAILABLE_GEMINI_MODELS if "pro" in m.lower() and "vision" not in m.lower()],
-            reverse=True
+    try:
+        response = client.models.generate_content(
+            model=actual_model,
+            contents=request_data.prompt,
+            config=genai.types.GenerateContentConfig(
+                temperature=request_data.temperature
+            )
         )
-        if initial_model in pro_models:
-            start_index = pro_models.index(initial_model)
-            candidates = pro_models[start_index:]
-        else:
-            candidates = [initial_model]
-    else:
-        # Pro以外（Flash等）はそのまま
-        candidates = [initial_model]
-
-    print(f"🔀 Model candidates: {candidates}")
-    last_exception = None
-
-    for i, model_to_try in enumerate(candidates):
-        # 最後の候補（下位モデル）のみリトライを行う設定
-        is_last = (i == len(candidates) - 1)
-        max_retries = 3 if is_last else 0
-
-        for attempt in range(max_retries + 1):
-            try:
-                response = client.models.generate_content(
-                    model=model_to_try,
-                    contents=request_data.prompt,
-                    config=genai.types.GenerateContentConfig(
-                        temperature=request_data.temperature
-                    )
-                )
-                # レスポンスの末尾に使用したモデル名を追記
-                final_text = f"{response.text}\n\n(Model: {model_to_try})"
-                return {"response": final_text, "model_used": model_to_try}
-            
-            except Exception as e:
-                last_exception = e
-                error_str = str(e)
-                is_quota = "429" in error_str or "RESOURCE_EXHAUSTED" in error_str
-
-                if not is_quota:
-                    raise HTTPException(status_code=500, detail=f"Gemini API Error: {error_str}")
-
-                if attempt < max_retries:
-                    wait_time = 2 * (2 ** attempt)
-                    print(f"⚠️ Quota exceeded for {model_to_try}. Retrying in {wait_time}s...")
-                    await asyncio.sleep(wait_time)
-                else:
-                    print(f"⚠️ Quota exceeded for {model_to_try}. Moving to next candidate.")
-                    break 
-
-    # 全て失敗した場合
-    detail_msg = f"All models failed. Candidates tried: {candidates}. Last error: {str(last_exception)}"
-    raise HTTPException(status_code=429, detail=detail_msg)
+        return {"response": response.text, "model_used": actual_model}
+        
+    except Exception as e:
+        print(f"Gemini API Error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Sarasina (Ollama経由またはローカルサーバー) 用のプロキシエンドポイント
 @app.post("/api/sarasina")
