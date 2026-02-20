@@ -70,14 +70,44 @@ function updateFileListDisplay() {
     // ファイル名のリストを生成
     persistentDocuments.forEach((doc, index) => {
         const li = document.createElement('li');
-        li.textContent = doc.name;
+        
+        // モバイル対応: レイアウトをFlexにしてメニューボタンを追加
+        li.style.display = 'flex';
+        li.style.justifyContent = 'space-between';
+        li.style.alignItems = 'center';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.textContent = doc.name;
+        nameSpan.style.flexGrow = '1';
+        nameSpan.style.overflow = 'hidden';
+        nameSpan.style.textOverflow = 'ellipsis';
+        nameSpan.style.whiteSpace = 'nowrap';
+        li.appendChild(nameSpan);
+
+        // メニューボタン (︙)
+        const menuBtn = document.createElement('span');
+        menuBtn.innerHTML = '&#x22EE;'; // 縦の三点リーダー
+        menuBtn.style.cursor = 'pointer';
+        menuBtn.style.padding = '0 5px 0 10px';
+        menuBtn.style.fontSize = '1.2em';
+        menuBtn.onclick = (e) => {
+            e.stopPropagation();
+            const rect = e.target.getBoundingClientRect();
+            createContextMenu({ pageX: rect.left + window.scrollX, pageY: rect.bottom + window.scrollY, preventDefault: () => {} }, index);
+        };
+        li.appendChild(menuBtn);
+
         li.title = doc.name; // ホバーでフルネームを表示
         li.dataset.docIndex = index;
-        li.onclick = (e) => {
-            // 選択されたファイルを表示するときは、OCR関連の要素をクリア
-            clearOcrDisplay(); 
-            showDocumentContent(e.target.dataset.docIndex);
+        li.onclick = () => {
+            clearOcrDisplay();
+            showDocumentContent(index);
         };
+        // 右クリックメニュー (コンテキストメニュー) の追加
+        li.addEventListener('contextmenu', (e) => {
+            e.preventDefault();
+            createContextMenu(e, index);
+        });
         fileListUl.appendChild(li);
     });
     
@@ -108,6 +138,133 @@ function showDocumentContent(index) {
     if (doc) {
         // 選択されたファイルの全文表示
         fileContentDiv.innerHTML = `<h3>選択中のファイル: ${doc.name}</h3><pre>${doc.content}</pre>`;
+    }
+}
+
+// --- コンテキストメニュー (右クリック) 関連 ---
+function createContextMenu(e, index) {
+    // 既存のメニューがあれば削除
+    const existingMenu = document.getElementById('customContextMenu');
+    if (existingMenu) existingMenu.remove();
+
+    const menu = document.createElement('div');
+    menu.id = 'customContextMenu';
+    menu.style.position = 'absolute';
+    menu.style.left = `${e.pageX}px`;
+    menu.style.top = `${e.pageY}px`;
+    menu.style.backgroundColor = 'white';
+    menu.style.border = '1px solid #ccc';
+    menu.style.boxShadow = '2px 2px 5px rgba(0,0,0,0.2)';
+    menu.style.zIndex = '1000';
+    menu.style.padding = '5px 0';
+    menu.style.minWidth = '120px';
+    menu.style.borderRadius = '4px';
+
+    const createMenuItem = (text, onClick, color = 'black') => {
+        const item = document.createElement('div');
+        item.textContent = text;
+        item.style.padding = '8px 12px';
+        item.style.cursor = 'pointer';
+        item.style.fontSize = '14px';
+        item.style.color = color;
+        item.onmouseover = () => item.style.backgroundColor = '#f0f0f0';
+        item.onmouseout = () => item.style.backgroundColor = 'white';
+        item.onclick = (ev) => {
+            ev.stopPropagation();
+            menu.remove();
+            onClick();
+        };
+        return item;
+    };
+
+    menu.appendChild(createMenuItem('名前を変更', () => renameDocument(index)));
+    menu.appendChild(createMenuItem('削除', () => deleteDocument(index), 'red'));
+
+    document.body.appendChild(menu);
+
+    const closeMenu = (event) => {
+        if (!menu.contains(event.target)) {
+            menu.remove();
+            document.removeEventListener('click', closeMenu);
+        }
+    };
+    setTimeout(() => document.addEventListener('click', closeMenu), 0);
+}
+
+function renameDocument(index) {
+    const doc = persistentDocuments[index];
+    const newName = prompt("新しいファイル名を入力してください:", doc.name);
+    if (newName && newName.trim() !== "" && newName !== doc.name) {
+        doc.name = newName.trim();
+        saveDocuments();
+        updateFileListDisplay();
+    }
+}
+
+function deleteDocument(index) {
+    const doc = persistentDocuments[index];
+    if (confirm(`本当に「${doc.name}」を削除しますか？`)) {
+        persistentDocuments.splice(index, 1);
+        saveDocuments();
+        updateFileListDisplay();
+    }
+}
+
+// --- File System Access API 関連 ---
+let directoryHandle = null;
+
+// ローカルフォルダと同期する関数
+async function syncLocalFolder() {
+    if (!('showDirectoryPicker' in window)) {
+        alert('お使いのブラウザはローカルフォルダ同期(File System Access API)をサポートしていません。PC版ChromeやEdgeをご利用ください。');
+        return;
+    }
+
+    try {
+        // ユーザーにフォルダを選択させる
+        const handle = await window.showDirectoryPicker({ mode: 'readwrite' });
+        directoryHandle = handle; // ハンドルを保持
+
+        if (confirm(`選択したフォルダ「${handle.name}」の内容で現在のRAGソースを上書きしますか？\n（現在LocalStorageに保存されている文書はクリアされます）`)) {
+            await loadFilesFromDirectory();
+        }
+
+    } catch (err) {
+        // ユーザーがダイアログをキャンセルした場合のエラーは無視
+        if (err.name !== 'AbortError') {
+            console.error('フォルダ選択中にエラーが発生しました:', err);
+            alert('フォルダ選択中にエラーが発生しました。');
+        }
+    }
+}
+
+// 選択されたディレクトリからファイルを読み込む関数
+async function loadFilesFromDirectory() {
+    if (!directoryHandle) return;
+
+    const fileContentDiv = document.getElementById('fileContent');
+    fileContentDiv.innerHTML = '<h3>同期フォルダからファイルを読み込み中...</h3><div class="spinner"></div>';
+
+    const newDocs = [];
+    try {
+        for await (const entry of directoryHandle.values()) {
+            if (entry.kind === 'file' && entry.name.endsWith('.txt')) {
+                const file = await entry.getFile();
+                const content = await file.text();
+                newDocs.push({ name: entry.name, content: content });
+            }
+        }
+
+        // 読み込んだ内容で永続化文書を上書き
+        persistentDocuments = newDocs;
+        saveDocuments(); // LocalStorageに保存
+        updateFileListDisplay(); // ファイル一覧を更新
+
+        alert(`フォルダ「${directoryHandle.name}」から ${newDocs.length} 件のテキストファイルを読み込み、RAGソースを同期しました。`);
+    } catch (err) {
+        console.error('フォルダからのファイル読み込み中にエラーが発生しました:', err);
+        alert('フォルダからのファイル読み込み中にエラーが発生しました。');
+        loadDocuments(); // エラーが発生した場合は、LocalStorageから元の状態を復元
     }
 }
 
@@ -642,6 +799,7 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('sendButton').addEventListener('click', sendToModel);
     document.getElementById('resetDocsButton').addEventListener('click', resetDocuments);
     document.getElementById('saveOcrButton').addEventListener('click', saveOcrTextAsFile);
+    document.getElementById('syncFolderButton').addEventListener('click', syncLocalFolder);
 
     // APIキーのロードと保存処理
     const savedKey = localStorage.getItem('plowerGeminiApiKey');
