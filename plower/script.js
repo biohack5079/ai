@@ -193,12 +193,93 @@ function createContextMenu(e, index) {
 
 function renameDocument(index) {
     const doc = persistentDocuments[index];
-    const newName = prompt("新しいファイル名を入力してください:", doc.name);
-    if (newName && newName.trim() !== "" && newName !== doc.name) {
-        doc.name = newName.trim();
-        saveDocuments();
-        updateFileListDisplay();
+    
+    // カスタムダイアログを作成 (promptでは選択範囲の制御ができないため)
+    const overlay = document.createElement('div');
+    overlay.style.position = 'fixed';
+    overlay.style.top = '0';
+    overlay.style.left = '0';
+    overlay.style.width = '100%';
+    overlay.style.height = '100%';
+    overlay.style.backgroundColor = 'rgba(0,0,0,0.5)';
+    overlay.style.zIndex = '2000';
+    overlay.style.display = 'flex';
+    overlay.style.justifyContent = 'center';
+    overlay.style.alignItems = 'center';
+
+    const dialog = document.createElement('div');
+    dialog.style.backgroundColor = 'white';
+    dialog.style.padding = '20px';
+    dialog.style.borderRadius = '8px';
+    dialog.style.boxShadow = '0 4px 6px rgba(0,0,0,0.1)';
+    dialog.style.minWidth = '300px';
+
+    const title = document.createElement('h3');
+    title.textContent = '名前を変更';
+    title.style.marginTop = '0';
+    title.style.marginBottom = '15px';
+    
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.value = doc.name;
+    input.style.width = '100%';
+    input.style.padding = '8px';
+    input.style.marginBottom = '20px';
+    input.style.boxSizing = 'border-box';
+    input.style.fontSize = '16px';
+
+    const btnContainer = document.createElement('div');
+    btnContainer.style.display = 'flex';
+    btnContainer.style.justifyContent = 'flex-end';
+    btnContainer.style.gap = '10px';
+
+    const closeDialog = () => overlay.remove();
+
+    const save = () => {
+        const newName = input.value.trim();
+        if (newName && newName !== "" && newName !== doc.name) {
+            doc.name = newName;
+            saveDocuments();
+            updateFileListDisplay();
+        }
+        closeDialog();
+    };
+
+    const cancelBtn = document.createElement('button');
+    cancelBtn.textContent = 'キャンセル';
+    cancelBtn.style.padding = '6px 12px';
+    cancelBtn.style.cursor = 'pointer';
+    cancelBtn.onclick = closeDialog;
+    
+    const okBtn = document.createElement('button');
+    okBtn.textContent = 'OK';
+    okBtn.style.padding = '6px 12px';
+    okBtn.style.cursor = 'pointer';
+    okBtn.onclick = save;
+
+    btnContainer.appendChild(cancelBtn);
+    btnContainer.appendChild(okBtn);
+
+    dialog.appendChild(title);
+    dialog.appendChild(input);
+    dialog.appendChild(btnContainer);
+    overlay.appendChild(dialog);
+    document.body.appendChild(overlay);
+
+    // 入力欄にフォーカスし、拡張子を除いた部分を選択状態にする
+    input.focus();
+    const lastDotIndex = doc.name.lastIndexOf('.');
+    if (lastDotIndex > 0) {
+        input.setSelectionRange(0, lastDotIndex);
+    } else {
+        input.select();
     }
+
+    // Enterキーで保存、Escapeでキャンセル
+    input.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') save();
+        if (e.key === 'Escape') closeDialog();
+    });
 }
 
 function deleteDocument(index) {
