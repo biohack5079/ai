@@ -62,6 +62,53 @@
     
     <div id="chatLog"></div>
 
+    <script>
+        if (!navigator.language.startsWith('ja')) {
+            const t = {
+                title: 'AI Shovel "Plower" digging up local information.',
+                ragSource: 'RAG Source (Folder/File):',
+                sync: 'Sync Local Folder (File System API)',
+                reset: 'Reset RAG Source (Clear LocalStore)',
+                listHeader: 'RAG Source Files (Persisted/Uploaded)',
+                preview: '[Preview of loaded document or selection will appear here]',
+                pasteLabel: 'Paste text or image as temporary RAG context:',
+                pastePlaceholder: 'Paste text here. Ctrl+V to paste image triggers OCR.',
+                saveOcr: 'Save OCR/Pasted Text as Persistent File',
+                inputLabel: 'Enter Question:',
+                inputPlaceholder: 'Please enter your question...',
+                keyLabel: 'Gemini API Key (Cloud only):',
+                saveKey: 'Save Key to Browser',
+                modelLabel: 'Select Model:',
+                send: 'Send',
+                cloud: '(Cloud)'
+            };
+
+            document.title = t.title;
+            document.querySelector('h1').textContent = t.title;
+            document.querySelector('label[for="fileInput"]').textContent = t.ragSource;
+            document.getElementById('syncFolderButton').textContent = t.sync;
+            document.getElementById('resetDocsButton').textContent = t.reset;
+            document.querySelector('#fileList h3').textContent = t.listHeader;
+            document.getElementById('fileContent').textContent = t.preview;
+            document.querySelector('label[for="pasteArea"]').textContent = t.pasteLabel;
+            document.getElementById('pasteArea').placeholder = t.pastePlaceholder;
+            document.getElementById('saveOcrButton').textContent = t.saveOcr;
+            document.querySelector('label[for="userInput"]').textContent = t.inputLabel;
+            document.getElementById('userInput').placeholder = t.inputPlaceholder;
+            document.querySelector('label[for="geminiApiKey"]').textContent = t.keyLabel;
+            document.getElementById('saveKeyButton').textContent = t.saveKey;
+            document.querySelector('label[for="modelSelect"]').textContent = t.modelLabel;
+            document.getElementById('sendButton').textContent = t.send;
+            
+            const select = document.getElementById('modelSelect');
+            for(let opt of select.options) {
+                if(opt.text.includes('(クラウド)')) {
+                    opt.text = opt.text.replace('(クラウド)', t.cloud);
+                }
+            }
+            document.documentElement.lang = 'en';
+        }
+    </script>
     <script src="script.js"></script>
 </body>
 </html>

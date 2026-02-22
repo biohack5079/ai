@@ -3,6 +3,9 @@ let persistentDocuments = [];
 // 貼り付け画像からOCR処理で生成された一時文書を格納
 let ocrDocuments = []; 
 
+// 言語設定の判定 (日本語以外なら英語モード)
+const isEn = !navigator.language.startsWith('ja');
+
 // Tesseract Workerを初期化（OCR処理用）
 let worker;
 
@@ -31,7 +34,10 @@ function saveDocuments() {
 
 // LocalStorageをリセットする関数
 function resetDocuments() {
-    if (confirm("本当にRAGソース文書を全て削除しますか？\n（この操作は元に戻せません。アップロードされたファイルがLocalStorageから全て消去されます。）")) {
+    const msgConfirm = isEn 
+        ? "Are you sure you want to delete all RAG source documents?\n(This cannot be undone. All uploaded files will be cleared from LocalStorage.)"
+        : "本当にRAGソース文書を全て削除しますか？\n（この操作は元に戻せません。アップロードされたファイルがLocalStorageから全て消去されます。）";
+    if (confirm(msgConfirm)) {
         try {
             // LocalStorageからキーを削除
             localStorage.removeItem('plowerRAGDocs');
@@ -46,10 +52,10 @@ function resetDocuments() {
             // UIを更新
             updateFileListDisplay(); 
             
-            alert("RAGソース文書を全てリセットしました。");
+            alert(isEn ? "All RAG source documents have been reset." : "RAGソース文書を全てリセットしました。");
         } catch (e) {
             console.error("Failed to reset documents:", e);
-            alert("リセット中にエラーが発生しました。");
+            alert(isEn ? "An error occurred during reset." : "リセット中にエラーが発生しました。");
         }
     }
 }
@@ -112,16 +118,16 @@ function updateFileListDisplay() {
     });
     
     // コンテンツ表示エリアの初期表示（最新の数ファイル）
-    let initialContent = '<h3>RAGソース文書プレビュー (最新5件)</h3>\n';
+    let initialContent = isEn ? '<h3>RAG Source Document Preview (Latest 5)</h3>\n' : '<h3>RAGソース文書プレビュー (最新5件)</h3>\n';
     const recentDocs = persistentDocuments.slice(-PREVIEW_MAX_DOCS).reverse();
     
     if (recentDocs.length > 0) {
         recentDocs.forEach(doc => {
             // ファイル名と内容を分かりやすく表示
-            initialContent += `<p><strong>【${doc.name}】</strong></p><pre>--- ファイル名: ${doc.name} ---\n${doc.content.slice(0, 300)}${doc.content.length > 300 ? '...' : ''}</pre>\n`;
+            initialContent += `<p><strong>【${doc.name}】</strong></p><pre>--- ${isEn ? 'File Name' : 'ファイル名'}: ${doc.name} ---\n${doc.content.slice(0, 300)}${doc.content.length > 300 ? '...' : ''}</pre>\n`;
         });
     } else {
-        initialContent += '<p>現在RAGのソースとなる文書はありません。</p>';
+        initialContent += isEn ? '<p>No RAG source documents available.</p>' : '<p>現在RAGのソースとなる文書はありません。</p>';
     }
     fileContentDiv.innerHTML = initialContent;
     
@@ -137,7 +143,7 @@ function showDocumentContent(index) {
     const doc = persistentDocuments[index];
     if (doc) {
         // 選択されたファイルの全文表示
-        fileContentDiv.innerHTML = `<h3>選択中のファイル: ${doc.name}</h3><pre>${doc.content}</pre>`;
+        fileContentDiv.innerHTML = `<h3>${isEn ? 'Selected File' : '選択中のファイル'}: ${doc.name}</h3><pre>${doc.content}</pre>`;
     }
 }
 
@@ -177,8 +183,8 @@ function createContextMenu(e, index) {
         return item;
     };
 
-    menu.appendChild(createMenuItem('名前を変更', () => renameDocument(index)));
-    menu.appendChild(createMenuItem('削除', () => deleteDocument(index), 'red'));
+    menu.appendChild(createMenuItem(isEn ? 'Rename' : '名前を変更', () => renameDocument(index)));
+    menu.appendChild(createMenuItem(isEn ? 'Delete' : '削除', () => deleteDocument(index), 'red'));
 
     document.body.appendChild(menu);
 
@@ -195,7 +201,7 @@ function renameDocument(index) {
     const doc = persistentDocuments[index];
     
     // カスタムダイアログを作成 (promptでは選択範囲の制御ができないため)
-    const overlay = document.createElement('div');
+    const overlay = documenjst.createElement('div');
     overlay.style.position = 'fixed';
     overlay.style.top = '0';
     overlay.style.left = '0';
@@ -215,7 +221,7 @@ function renameDocument(index) {
     dialog.style.minWidth = '300px';
 
     const title = document.createElement('h3');
-    title.textContent = '名前を変更';
+    title.textContent = isEn ? 'Rename' : '名前を変更';
     title.style.marginTop = '0';
     title.style.marginBottom = '15px';
     
@@ -246,7 +252,7 @@ function renameDocument(index) {
     };
 
     const cancelBtn = document.createElement('button');
-    cancelBtn.textContent = 'キャンセル';
+    cancelBtn.textContent = isEn ? 'Cancel' : 'キャンセル';
     cancelBtn.style.padding = '6px 12px';
     cancelBtn.style.cursor = 'pointer';
     cancelBtn.onclick = closeDialog;
@@ -284,7 +290,8 @@ function renameDocument(index) {
 
 function deleteDocument(index) {
     const doc = persistentDocuments[index];
-    if (confirm(`本当に「${doc.name}」を削除しますか？`)) {
+    const msg = isEn ? `Are you sure you want to delete "${doc.name}"?` : `本当に「${doc.name}」を削除しますか？`;
+    if (confirm(msg)) {
         persistentDocuments.splice(index, 1);
         saveDocuments();
         updateFileListDisplay();
@@ -648,15 +655,15 @@ async function sendToModel() {
     const apiKey = document.getElementById('geminiApiKey').value.trim();
 
     if (!userInput) {
-        alert("質問を入力してください。");
+        alert(isEn ? "Please enter a question." : "質問を入力してください。");
         return;
     }
     
     sendButton.disabled = true;
-    sendButton.textContent = '送信中...';
-    chatLog.innerHTML += `<p><strong>質問:</strong> ${userInput}</p>`;
+    sendButton.textContent = isEn ? 'Sending...' : '送信中...';
+    chatLog.innerHTML += `<p><strong>${isEn ? 'Question' : '質問'}:</strong> ${userInput}</p>`;
     const responseParagraph = document.createElement('p');
-    responseParagraph.innerHTML = '<strong>回答:</strong> (応答待機中...)';
+    responseParagraph.innerHTML = `<strong>${isEn ? 'Answer' : '回答'}:</strong> (${isEn ? 'Waiting for response...' : '応答待機中...'})`;
     chatLog.appendChild(responseParagraph);
     
     // 全てのRAGソースを統合
@@ -680,7 +687,17 @@ async function sendToModel() {
     const context = relevantDocs.map(doc => `【${doc.name}】\n${doc.content}`).join('\n\n').slice(0, 5000); // 5000文字に制限
     
     // プロンプトの生成 (Sarasinaなど小規模モデルでも認識しやすい形式に調整)
-    const prompt = `あなたは提供された文書に基づいて回答するアシスタントです。
+    const prompt = isEn 
+        ? `You are an assistant answering based on the provided documents.
+Answer the question in English using only the content from the [Reference Documents] below.
+If the answer is not contained in the documents, state "I cannot answer as there is no relevant information in the provided documents."
+
+[Reference Documents]
+${context}
+
+[Question]
+${userInput}`
+        : `あなたは提供された文書に基づいて回答するアシスタントです。
 以下の【参照文書】の内容のみを使用して、質問に日本語で答えてください。
 文書に答えが含まれていない場合は、「提供された文書に関連情報がないため回答できません。」と答えてください。
 
@@ -775,17 +792,17 @@ ${userInput}`;
         }
 
         if (!success) {
-            responseParagraph.innerHTML = `<strong>回答:</strong> ❌ エラーが発生しました: ${lastError ? lastError.message : 'All candidates failed.'}`;
+            responseParagraph.innerHTML = `<strong>${isEn ? 'Answer' : '回答'}:</strong> ❌ ${isEn ? 'Error occurred' : 'エラーが発生しました'}: ${lastError ? lastError.message : 'All candidates failed.'}`;
             sendButton.disabled = false;
-            sendButton.textContent = '送信';
+            sendButton.textContent = isEn ? 'Send' : '送信';
             return;
         }
 
         // 結果表示して終了（Ollama用の共通処理はスキップ）
-        responseParagraph.innerHTML = `<strong>回答:</strong> ${result.replace(/\n/g, '<br>')}`;
+        responseParagraph.innerHTML = `<strong>${isEn ? 'Answer' : '回答'}:</strong> ${result.replace(/\n/g, '<br>')}`;
         userInputElement.value = '';
         sendButton.disabled = false;
-        sendButton.textContent = '送信';
+        sendButton.textContent = isEn ? 'Send' : '送信';
         chatLog.scrollTop = chatLog.scrollHeight;
         return;
         
@@ -853,7 +870,7 @@ ${userInput}`;
                             if (json.response) {
                                 result += json.response;
                                 // 応答をリアルタイムで表示し、改行を<br>に変換
-                                responseParagraph.innerHTML = `<strong>回答:</strong> ${result.replace(/\n/g, '<br>')}`;
+                                responseParagraph.innerHTML = `<strong>${isEn ? 'Answer' : '回答'}:</strong> ${result.replace(/\n/g, '<br>')}`;
                             }
                         } catch (e) {
                             // JSON解析エラーは無視 (部分的なストリームチャンクの可能性)
@@ -885,15 +902,15 @@ ${userInput}`;
         }
         
         // 最終結果の表示（非ストリーミングの場合、ここで一度に更新）
-        responseParagraph.innerHTML = `<strong>回答:</strong> ${result.replace(/\n/g, '<br>')}`;
+        responseParagraph.innerHTML = `<strong>${isEn ? 'Answer' : '回答'}:</strong> ${result.replace(/\n/g, '<br>')}`;
         userInputElement.value = ''; // 質問欄をクリア
 
     } catch (error) {
-        responseParagraph.innerHTML = `<strong>回答:</strong> ❌ エラーが発生しました: ${error.message}`;
+        responseParagraph.innerHTML = `<strong>${isEn ? 'Answer' : '回答'}:</strong> ❌ ${isEn ? 'Error occurred' : 'エラーが発生しました'}: ${error.message}`;
         console.error("Model request error:", error);
     } finally {
         sendButton.disabled = false;
-        sendButton.textContent = '送信';
+        sendButton.textContent = isEn ? 'Send' : '送信';
         // 最新のチャットが見えるようにスクロール
         chatLog.scrollTop = chatLog.scrollHeight;
     }
@@ -918,20 +935,20 @@ document.addEventListener('DOMContentLoaded', () => {
         const key = document.getElementById('geminiApiKey').value.trim();
         if (key) {
             localStorage.setItem('plowerGeminiApiKey', key);
-            alert('APIキーをブラウザに保存しました。次回から自動入力されます。');
+            alert(isEn ? 'API Key saved to browser.' : 'APIキーをブラウザに保存しました。次回から自動入力されます。');
         } else {
-            alert('APIキーが空です。削除する場合は「削除」ボタンを使用してください。');
+            alert(isEn ? 'API Key is empty. Use "Delete Key" button to remove it.' : 'APIキーが空です。削除する場合は「削除」ボタンを使用してください。');
         }
     });
 
     // 削除ボタンを動的に追加
     const deleteKeyBtn = document.createElement('button');
-    deleteKeyBtn.textContent = 'キー削除';
+    deleteKeyBtn.textContent = isEn ? 'Delete Key' : 'キー削除';
     deleteKeyBtn.style.marginLeft = '5px';
     deleteKeyBtn.addEventListener('click', () => {
         localStorage.removeItem('plowerGeminiApiKey');
         document.getElementById('geminiApiKey').value = '';
-        alert('保存されたAPIキーを削除しました。');
+        alert(isEn ? 'Saved API Key deleted.' : '保存されたAPIキーを削除しました。');
     });
     saveKeyBtn.parentNode.insertBefore(deleteKeyBtn, saveKeyBtn.nextSibling);
     
