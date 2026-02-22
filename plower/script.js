@@ -201,7 +201,7 @@ function renameDocument(index) {
     const doc = persistentDocuments[index];
     
     // カスタムダイアログを作成 (promptでは選択範囲の制御ができないため)
-    const overlay = documenjst.createElement('div');
+    const overlay = document.createElement('div');
     overlay.style.position = 'fixed';
     overlay.style.top = '0';
     overlay.style.left = '0';
