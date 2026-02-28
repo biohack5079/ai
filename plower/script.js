@@ -49,6 +49,10 @@ function resetDocuments() {
             // OCR関連の表示もクリア
             clearOcrDisplay();
 
+            // 同期設定のクリア
+            directoryHandle = null;
+            if (syncInterval) clearInterval(syncInterval);
+
             // UIを更新
             updateFileListDisplay(); 
             
@@ -300,59 +304,71 @@ function deleteDocument(index) {
 
 // --- File System Access API 関連 ---
 let directoryHandle = null;
+let syncInterval = null;
 
 // ローカルフォルダと同期する関数
 async function syncLocalFolder() {
     if (!('showDirectoryPicker' in window)) {
-        alert('お使いのブラウザはローカルフォルダ同期(File System Access API)をサポートしていません。PC版ChromeやEdgeをご利用ください。');
+        alert(isEn ? 'Your browser does not support File System Access API.' : 'お使いのブラウザはローカルフォルダ同期(File System Access API)をサポートしていません。PC版ChromeやEdgeをご利用ください。');
         return;
     }
+
+    // 既存の同期を停止
+    if (syncInterval) clearInterval(syncInterval);
 
     try {
         // ユーザーにフォルダを選択させる
         const handle = await window.showDirectoryPicker({ mode: 'read' });
-        directoryHandle = handle; // ハンドルを保持
+        directoryHandle = handle;
+        
+        const msg = isEn 
+            ? `Start syncing with folder "${handle.name}"?\nFiles in this folder will be automatically synced.`
+            : `フォルダ「${handle.name}」と同期を開始しますか？\nこのフォルダ内のファイルは自動的に同期（追加・更新）されます。`;
 
-        if (confirm(`フォルダ「${handle.name}」の内容を現在のRAGソースに追加しますか？`)) {
-            await loadFilesFromDirectory();
+        if (confirm(msg)) {
+            // 初回読み込み (UI表示あり)
+            await loadFilesFromDirectory(false);
+            // 自動同期タイマーを開始 (10秒ごとにチェック)
+            syncInterval = setInterval(() => loadFilesFromDirectory(true), 10000);
         }
 
     } catch (err) {
-        // ユーザーがダイアログをキャンセルした場合のエラーは無視
         if (err.name !== 'AbortError') {
             console.error('フォルダ選択中にエラーが発生しました:', err);
-            alert('フォルダ選択中にエラーが発生しました。');
+            alert(isEn ? 'Error selecting folder.' : 'フォルダ選択中にエラーが発生しました。');
         }
     }
 }
 
 // 選択されたディレクトリからファイルを読み込む関数
-async function loadFilesFromDirectory() {
+async function loadFilesFromDirectory(isSilent = false) {
     if (!directoryHandle) return;
 
     const fileContentDiv = document.getElementById('fileContent');
-    fileContentDiv.innerHTML = '<h3>同期フォルダからファイルを読み込み中...</h3><div class="spinner"></div>';
+    
+    // サイレントモードでない場合のみローディング表示
+    if (!isSilent) {
+        fileContentDiv.innerHTML = isEn ? '<h3>Syncing files...</h3><div class="spinner"></div>' : '<h3>同期フォルダからファイルを読み込み中...</h3><div class="spinner"></div>';
+    }
 
     try {
-        const newDocs = [];
+        const scannedDocs = [];
 
         // 再帰的にファイルを読み込むヘルパー関数
         async function readDirectoryRecursive(dirHandle, pathPrefix = '') {
             for await (const entry of dirHandle.values()) {
                 if (entry.kind === 'file') {
-                    // 拡張子チェックの緩和 (.txt, .md, .log, .py, .js, .json, .c, .cpp, .h, .java, .html, .css, .csv)
                     if (/\.(txt|md|log|py|js|json|c|cpp|h|java|html|css|csv|rb|go|rs|php)$/i.test(entry.name)) {
                         try {
                             const file = await entry.getFile();
                             const content = await file.text();
                             // パスを含めた名前で保存 (例: subfolder/file.txt)
-                            newDocs.push({ name: pathPrefix + entry.name, content: content });
+                            scannedDocs.push({ name: pathPrefix + entry.name, content: content });
                         } catch (e) {
                             console.warn(`Skipped file: ${entry.name}`, e);
                         }
                     }
                 } else if (entry.kind === 'directory') {
-                    // サブディレクトリを再帰的に探索
                     await readDirectoryRecursive(entry, pathPrefix + entry.name + '/');
                 }
             }
@@ -360,22 +376,58 @@ async function loadFilesFromDirectory() {
 
         await readDirectoryRecursive(directoryHandle);
 
-        if (newDocs.length === 0) {
-            alert("読み込み可能なテキストファイルが見つかりませんでした。");
-            updateFileListDisplay();
+        if (scannedDocs.length === 0) {
+            if (!isSilent) {
+                alert(isEn ? "No text files found." : "読み込み可能なテキストファイルが見つかりませんでした。");
+                updateFileListDisplay();
+            }
             return;
         }
 
-        // 既存の文書に追加 (マージ)
-        persistentDocuments = persistentDocuments.concat(newDocs);
-        saveDocuments(); // LocalStorageに保存
-        updateFileListDisplay(); // ファイル一覧を更新
+        let changesMade = false;
+        let addedCount = 0;
+        let updatedCount = 0;
 
-        alert(`フォルダ「${directoryHandle.name}」から ${newDocs.length} 件のファイルを読み込み、RAGソースに追加しました。`);
+        // マージロジック: 既存の文書を更新または新規追加
+        for (const doc of scannedDocs) {
+            const existingIndex = persistentDocuments.findIndex(d => d.name === doc.name);
+            if (existingIndex !== -1) {
+                // 内容が変更されている場合のみ更新
+                if (persistentDocuments[existingIndex].content !== doc.content) {
+                    persistentDocuments[existingIndex].content = doc.content;
+                    changesMade = true;
+                    updatedCount++;
+                }
+            } else {
+                // 新規追加
+                persistentDocuments.push(doc);
+                changesMade = true;
+                addedCount++;
+            }
+        }
+
+        if (changesMade) {
+            saveDocuments(); // LocalStorageに保存
+            updateFileListDisplay(); // ファイル一覧を更新
+            
+            if (!isSilent) {
+                alert(isEn ? `Synced: ${addedCount} added, ${updatedCount} updated.` : `フォルダ「${directoryHandle.name}」から ${addedCount} 件追加、${updatedCount} 件更新しました。`);
+            } else {
+                console.log(`Auto-sync: Added ${addedCount}, Updated ${updatedCount}`);
+            }
+        } else {
+            if (!isSilent) {
+                alert(isEn ? "Files are up to date." : "ファイルの内容は最新です。");
+                updateFileListDisplay(); // 表示を復元
+            }
+        }
+
     } catch (err) {
         console.error('フォルダからのファイル読み込み中にエラーが発生しました:', err);
-        alert('フォルダからのファイル読み込み中にエラーが発生しました。');
-        updateFileListDisplay(); // 表示を復元
+        if (!isSilent) {
+            alert(isEn ? 'Error syncing files.' : 'フォルダからのファイル読み込み中にエラーが発生しました。');
+            updateFileListDisplay(); // 表示を復元
+        }
     }
 }
 
@@ -438,46 +490,49 @@ async function runOcrOnImage(base64Image, statusElement) {
 
 
 // --- ファイル入力のイベントリスナー ---
-document.getElementById('fileInput').addEventListener('change', function () {
-    const files = this.files;
-    if (files.length === 0) return;
-    
-    // ファイルの内容を読み込み、persistentDocuments に追加
-    const fileReads = Array.from(files).map(file => {
-        return new Promise((resolve, reject) => {
-            if (file.size > 10 * 1024 * 1024) { // 10MB以上はスキップ
-                alert(`ファイル「${file.name}」はサイズ制限（10MB）を超えているためスキップされました。`);
-                return resolve();
-            }
-            const reader = new FileReader();
-            reader.onload = function (e) {
-                // フォルダアップロード時は相対パスを使用、通常はファイル名
-                const docName = file.webkitRelativePath ? file.webkitRelativePath : file.name;
-                const newDoc = { name: docName, content: e.target.result };
-                persistentDocuments.push(newDoc);
-                resolve();
-            };
-            reader.onerror = reject;
-            reader.readAsText(file);
-        });
-    });
+document.addEventListener('DOMContentLoaded', () => {
+    const fileInput = document.getElementById('fileInput');
+    if (fileInput) {
+        fileInput.addEventListener('change', function () {
+            const files = this.files;
+            if (files.length === 0) return;
+            
+            // ファイルの内容を読み込み、persistentDocuments に追加
+            const fileReads = Array.from(files).map(file => {
+                return new Promise((resolve, reject) => {
+                    if (file.size > 10 * 1024 * 1024) { // 10MB以上はスキップ
+                        alert(`ファイル「${file.name}」はサイズ制限（10MB）を超えているためスキップされました。`);
+                        return resolve();
+                    }
+                    const reader = new FileReader();
+                    reader.onload = function (e) {
+                        const newDoc = { name: file.name, content: e.target.result };
+                        persistentDocuments.push(newDoc);
+                        resolve();
+                    };
+                    reader.onerror = reject;
+                    reader.readAsText(file);
+                });
+            });
 
-    Promise.all(fileReads.filter(p => p !== null))
-        .then(() => {
-            saveDocuments();
-            updateFileListDisplay();
-            alert(`新しいファイル ${persistentDocuments.length - (persistentDocuments.length - files.length)} 件をRAGソースに追加しました。`);
-        })
-        .catch(error => {
-            alert('ファイルの読み込み中にエラーが発生しました。');
-            console.error("File reading error:", error);
+            Promise.all(fileReads.filter(p => p !== null))
+                .then(() => {
+                    saveDocuments();
+                    updateFileListDisplay();
+                    alert(`新しいファイル ${persistentDocuments.length - (persistentDocuments.length - files.length)} 件をRAGソースに追加しました。`);
+                })
+                .catch(error => {
+                    alert('ファイルの読み込み中にエラーが発生しました。');
+                    console.error("File reading error:", error);
+                });
+            
+            this.value = ''; // 連続アップロードのためにinputをクリア
         });
-    
-    this.value = ''; // 連続アップロードのためにinputをクリア
+    }
 });
 
 // --- 貼り付け画像処理のイベントリスナー (OCR連携ロジック) ---
-document.getElementById('pasteArea').addEventListener('paste', async function (e) {
+async function handlePaste(e) {
     const items = e.clipboardData.items;
     let imageFound = false;
     
@@ -546,7 +601,7 @@ document.getElementById('pasteArea').addEventListener('paste', async function (e
     }
     
     // 画像貼り付けではない場合は、テキスト貼り付けとして処理は継続される（pasteAreaに入る）
-});
+}
 
 // --- OCR/貼付テキストのファイル保存と永続化 ---
 
@@ -923,6 +978,10 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('resetDocsButton').addEventListener('click', resetDocuments);
     document.getElementById('saveOcrButton').addEventListener('click', saveOcrTextAsFile);
     document.getElementById('syncFolderButton').addEventListener('click', syncLocalFolder);
+    
+    // DOMロード後にイベントリスナーを登録 (安全策)
+    const pasteArea = document.getElementById('pasteArea');
+    if (pasteArea) pasteArea.addEventListener('paste', handlePaste);
 
     // APIキーのロードと保存処理
     const savedKey = localStorage.getItem('plowerGeminiApiKey');
