@@ -739,7 +739,7 @@ async function sendToModel() {
     }
 
     console.log(`RAG検索結果: ${relevantDocs.length}件の関連文書が見つかりました。`, relevantDocs); // デバッグ用
-    const context = relevantDocs.map(doc => `【${doc.name}】\n${doc.content}`).join('\n\n').slice(0, 5000); // 5000文字に制限
+    const context = relevantDocs.map(doc => `【${doc.name}】\n${doc.content}`).join('\n\n').slice(0, 10000); // 10000文字に制限
     
     // プロンプトの生成 (Sarasinaなど小規模モデルでも認識しやすい形式に調整)
     const prompt = isEn 
@@ -884,8 +884,8 @@ ${userInput}`;
         }
 
         // コンテキストサイズ設定 (Ollamaモデルのみ)
-        const numCtx = (modelSelect.includes('20b') || modelSelect.includes('12b') || modelSelect.includes('120b')) ? 8192 : 4096;
-        
+        const numCtx = 8192; // 多くのモデルがサポートする8192に固定
+
         bodyData = {
             model: modelSelect, 
             prompt: prompt,
