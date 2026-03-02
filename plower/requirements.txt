@@ -1,14 +1,5 @@
-# ~/ai/plower/requirements.txt
-
-# FastAPI (APIサーバーフレームワーク)
 fastapi
-uvicorn
-
-# Gemini API (GoogleのAI SDK)
-google-genai
-
-# 環境変数管理
+uvicorn[standard]
+google-generativeai
 python-dotenv
-
-# HTTP Client
 requests

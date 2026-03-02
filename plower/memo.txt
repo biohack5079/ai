@@ -69,6 +69,7 @@ pip install -r requirements.txt
 GEMINI_API_KEY=あなたのキー
 
 uvicorn app.main:app --reload --port 8001
+python -m uvicorn app.main:app --reload --port 8001
 python -m http.server 8000
 
 
