@@ -17,6 +17,9 @@ echo "🔴 モデルのダウンロードを開始します..."
 echo "--- Pulling gemma:7b ---"
 ollama pull gemma:7b
 
+echo "--- Pulling gpt-oss:20b ---"
+ollama pull gpt-oss:20b
+
 echo "🟢 すべてのモデルの準備が完了しました！"
 
 # プロセスが終了しないように待機
