@@ -1059,6 +1059,7 @@ document.addEventListener('DOMContentLoaded', () => {
     saveOllamaBtn.addEventListener('click', () => {
         let url = ollamaInput.value.trim();
         if (!url) url = 'http://localhost:11434';
+        let finalMessage = isEn ? 'Ollama URL saved.' : 'OllamaのURL設定を保存しました。';
         
         // Hugging Face SpacesのWeb URLが入力された場合、Direct URLに自動変換する
         // 例: https://huggingface.co/spaces/username/spacename -> https://username-spacename.hf.space
@@ -1068,11 +1069,11 @@ document.addEventListener('DOMContentLoaded', () => {
             const spacename = hfMatch[2].toLowerCase();
             url = `https://${username}-${spacename}.hf.space`;
             ollamaInput.value = url; // 入力欄も更新
-            alert(isEn ? 'Converted Hugging Face Space URL to Direct URL format.' : 'Hugging Face SpaceのWeb URLを検出しました。API用のDirect URL形式に自動変換しました。');
+            finalMessage = isEn ? 'Converted Hugging Face Space URL to Direct URL format and saved.' : 'Hugging Face SpaceのWeb URLを検出し、API用のDirect URL形式に自動変換して保存しました。';
         }
         
         localStorage.setItem('plowerOllamaEndpoint', url);
-        alert(isEn ? 'Ollama URL saved.' : 'OllamaのURL設定を保存しました。');
+        alert(finalMessage);
     });
 
     // Enterキーでの送信機能

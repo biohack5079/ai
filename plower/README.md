@@ -1,3 +1,13 @@
+---
+title: Plower
+emoji: 🐢
+colorFrom: gray
+colorTo: gray
+sdk: docker
+pinned: false
+app_port: 7860
+---
+
 # Plower
 
 Plower is a local-first LLM application designed as a privacy-conscious alternative

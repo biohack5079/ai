@@ -1,17 +1,19 @@
-# ~/data/plower/.gitignore
+# OS generated files (Mac/Windows)
+.DS_Store
+Thumbs.db
 
-# Python
-__pycache__/
-*.pyc
+# Editor directories (VSCode, IntelliJ, etc.)
+.vscode/
+.idea/
 
-# 環境変数 (🔑 APIキーを含むため絶対に除外！)
-# Environment variables
+# Environment variables (Secrets - NEVER commit these)
 .env
+.env.local
 
-# Python環境
-venv/
-.venv/
+# Logs
+*.log
 
-
-download_sarasina.py
-temp_model
+# Temporary files
+*.tmp
+*.bak
+*.swp
