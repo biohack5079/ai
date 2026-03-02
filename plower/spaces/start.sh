@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# Spaceの設定画面(Variables)での入力ミスを強制的に修正
+export OLLAMA_HOST=0.0.0.0:7860
+export OLLAMA_ORIGINS='https://sagbuntu.web.app'
+
 # Ollamaサーバーをバックグラウンドで起動
 ollama serve &
 pid=$!
@@ -9,7 +13,7 @@ sleep 5
 
 echo "🔴 モデルのダウンロードを開始します..."
 
-echo "🔴 トラブルシューティングのため、軽量なgemma:2bモデルのみをダウンロードします..."
+echo "--- Pulling gemma:2b (Test Mode) ---"
 ollama pull gemma:2b
 
 echo "🟢 すべてのモデルの準備が完了しました！"
