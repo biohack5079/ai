@@ -146,7 +146,8 @@ function showDocumentContent(index) {
     const fileContentDiv = document.getElementById('fileContent');
     const doc = persistentDocuments[index];
     if (doc) {
-        // 選択されたファイルの全文表示
+        // 選択されたファイルの全文
+        // 表示
         fileContentDiv.innerHTML = `<h3>${isEn ? 'Selected File' : '選択中のファイル'}: ${doc.name}</h3><pre>${doc.content}</pre>`;
     }
 }
@@ -759,25 +760,19 @@ async function sendToModel() {
     console.log(`RAG検索結果: ${relevantDocs.length}件の関連文書が見つかりました。`, relevantDocs); // デバッグ用
     const context = relevantDocs.map(doc => `【${doc.name}】\n${doc.content}`).join('\n\n').slice(0, 10000); // 10000文字に制限
     
-    // プロンプトの生成 (Sarasinaなど小規模モデルでも認識しやすい形式に調整)
-    const prompt = isEn 
-        ? `You are an assistant answering based on the provided documents.
-Answer the question in English using only the content from the [Reference Documents] below.
-If the answer is not contained in the documents, state "I cannot answer as there is no relevant information in the provided documents."
+    // プロンプトの生成: 質問と同じ言語で回答させるための指示を明確化。
+    // ブラウザの言語設定(isEn)に依存せず、常に同じ構造のプロンプトを渡すことで、モデルの動作を安定させます。
+    const prompt = `You are a helpful assistant. Your task is to answer the user's question based *only* on the provided [Reference Documents].
+
+IMPORTANT INSTRUCTIONS:
+1.  **Answer in the same language as the user's [Question].** (e.g., if the question is in Japanese, your answer MUST be in Japanese).
+2.  Base your answer strictly on the information within the [Reference Documents]. Do not use any external knowledge.
+3.  If the answer cannot be found in the [Reference Documents], you MUST state that the information is not available, in the same language as the question.
 
 [Reference Documents]
 ${context}
 
 [Question]
-${userInput}`
-        : `あなたは提供された文書に基づいて回答するアシスタントです。
-以下の【参照文書】の内容のみを使用して、質問に日本語で答えてください。
-文書に答えが含まれていない場合は、「提供された文書に関連情報がないため回答できません。」と答えてください。
-
-【参照文書】
-${context}
-
-【質問】
 ${userInput}`;
 
     let result = '';
@@ -890,8 +885,7 @@ ${userInput}`;
         isStreaming = false;
     } else {
         // --- Ollama Local Model ---
-        endpoint = 'http://localhost:11434/api/generate';
-        // LocalStorageから設定を取得 (デフォルトはlocalhost)
+        // LocalStorageから設定を取得 (デフォルトは localhost)
         let ollamaBaseUrl = localStorage.getItem('plowerOllamaEndpoint') || 'http://localhost:11434';
         if (ollamaBaseUrl.endsWith('/')) ollamaBaseUrl = ollamaBaseUrl.slice(0, -1);
         

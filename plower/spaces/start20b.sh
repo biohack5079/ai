@@ -2,8 +2,7 @@
 
 # Spaceの設定画面(Variables)での入力ミスを強制的に修正
 export OLLAMA_HOST=0.0.0.0:7860
-# 本番環境とローカル環境(localhost)からのアクセスを許可します
-export OLLAMA_ORIGINS="https://sagbuntu.web.app,http://localhost:*,http://127.0.0.1:*"
+# export OLLAMA_ORIGINS='*'
 
 # Ollamaサーバーをバックグラウンドで起動
 ollama serve &
@@ -14,8 +13,22 @@ sleep 5
 
 echo "🔴 モデルのダウンロードを開始します..."
 
-echo "--- Pulling gemma:7b ---"
-ollama pull gemma:7b
+# モデルのダウンロードを並列で実行して高速化します
+(
+    echo "--- Pulling gemma:7b ---"
+    ollama pull gemma:7b
+) &
+
+(
+    echo "--- Pulling qwen:14b ---"
+    ollama pull qwen:14b
+) &
+
+# バックグラウンドで実行したダウンロード処理がすべて完了するのを待つ
+wait
+
+echo "--- Creating alias for gpt-oss:20b ---"
+ollama cp qwen:14b gpt-oss:20b
 
 echo "🟢 すべてのモデルの準備が完了しました！"
 
