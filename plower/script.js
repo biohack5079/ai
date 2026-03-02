@@ -845,7 +845,8 @@ async function sendToModel() {
 IMPORTANT INSTRUCTIONS:
 1.  **Answer in the same language as the user's [Question].** (e.g., if the question is in Japanese, your answer MUST be in Japanese).
 2.  Base your answer strictly on the information within the [Reference Documents]. Do not use any external knowledge.
-3.  If the answer cannot be found in the [Reference Documents], you MUST state that the information is not available, in the same language as the question.
+3.  **Language Handling:** The documents may be in a different language than the question. You must translate and interpret the documents to answer the question accurately.
+4.  If the answer cannot be found in the [Reference Documents], you MUST state that the information is not available, in the same language as the question.
 
 [Reference Documents]
 ${context}
