@@ -78,3 +78,7 @@ git add .
 git commit -m "change"
 git push -u origin main
 
+### venvをリポジトリから削除
+git rm -r --cached venv
+git commit -m "Remove venv from repository"
+git push
