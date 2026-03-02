@@ -663,12 +663,29 @@ function findRelevantDocs(query, docs, topK = 3) {
     const cleanQuery = query.toLowerCase()
         .replace(/[.,\/#!$%\^&\*;:{}=\-_`~()？。、！「」【】]/g, " "); 
 
-    const searchTerms = cleanQuery.split(/\s+/)
-        .filter(t => t.trim().length > 0)
-        .filter(t => {
-            // 英数字のみの場合は2文字以上、それ以外（日本語など）は1文字以上を許容
-            return /^[a-z0-9]+$/.test(t) ? t.length > 1 : true;
-        });
+    let searchTerms = [];
+    
+    // 空白で分割 (英語などはこれで単語になる)
+    const rawTerms = cleanQuery.split(/\s+/).filter(t => t.trim().length > 0);
+
+    rawTerms.forEach(term => {
+        // 日本語などのマルチバイト文字が含まれる場合、N-gram (2文字) に分割して検索精度を上げる
+        if (/[^\x00-\x7F]/.test(term)) {
+            // 1. 元の用語も追加
+            searchTerms.push(term);
+            // 2. 2文字ごとの切り出し (Bi-gram)
+            if (term.length >= 2) {
+                for (let i = 0; i < term.length - 1; i++) {
+                    searchTerms.push(term.substring(i, i + 2));
+                }
+            }
+        } else {
+            // 英数字はそのまま (2文字以上)
+            if (term.length > 1) {
+                searchTerms.push(term);
+            }
+        }
+    });
 
     // 元のクエリそのものも検索語に追加
     if (query.trim()) {
@@ -687,7 +704,8 @@ function findRelevantDocs(query, docs, topK = 3) {
                 // 正規表現の特殊文字をエスケープ
                 const escapedTerm = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
                 const count = (content.match(new RegExp(escapedTerm, 'g')) || []).length; 
-                score += count * term.length; 
+                // スコア加算 (長い単語の一致ほど高得点になるよう2乗する)
+                score += count * (term.length * term.length); 
             } catch (e) {
                 console.warn("Regex error:", e);
             }
